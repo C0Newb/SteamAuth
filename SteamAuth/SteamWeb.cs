@@ -1,169 +1,60 @@
-﻿using System;
-using System.Collections.Specialized;
-using System.IO;
+﻿using System.Collections.Specialized;
 using System.Net;
-using System.Threading.Tasks;
 
-namespace SteamAuth
-{
-    public class SteamWeb
-    {
+namespace SteamAuth {
+    /// <summary>
+    /// Helper class to make web requests, such as POST and GET.
+    /// </summary>
+    public class SteamWeb {
         /// <summary>
-        /// Perform a mobile login request
+        /// Our mobile user agent. Meant to mimic the Steam app.
         /// </summary>
-        /// <param name="url">API url</param>
-        /// <param name="method">GET or POST</param>
-        /// <param name="data">Name-data pairs</param>
-        /// <param name="cookies">current cookie container</param>
-        /// <returns>response body</returns>
-        public static string MobileLoginRequest(string url, string method, NameValueCollection data = null, CookieContainer cookies = null, NameValueCollection headers = null)
-        {
-            return Request(url, method, data, cookies, headers, APIEndpoints.COMMUNITY_BASE + "/mobilelogin?oauth_client_id=DE45CD61&oauth_scope=read_profile%20write_profile%20read_client%20write_client");
-        }
+        public const string MOBILE_APP_USER_AGENT = "Dalvik/2.1.0 (Linux; U; Android 9; Valve Steam App Version/3)";
 
-        public static string Request(string url, string method, NameValueCollection data = null, CookieContainer cookies = null, NameValueCollection headers = null, string referer = APIEndpoints.COMMUNITY_BASE)
-        {
-            string query = (data == null ? string.Empty : string.Join("&", Array.ConvertAll(data.AllKeys, key => String.Format("{0}={1}", WebUtility.UrlEncode(key), WebUtility.UrlEncode(data[key])))));
-            if (method == "GET")
-            {
-                url += (url.Contains("?") ? "&" : "?") + query;
-            }
+        private static HttpClient CreateHttpClient(CookieContainer cookies) {
+            var handler = new HttpClientHandler { CookieContainer = cookies };
+            var client = new HttpClient(handler);
+            client.DefaultRequestHeaders.UserAgent.ParseAdd(MOBILE_APP_USER_AGENT);
 
-            return Request(url, method, query, cookies, headers, referer);
-        }
-
-        public static string Request(string url, string method, string dataString = null, CookieContainer cookies = null, NameValueCollection headers = null, string referer = APIEndpoints.COMMUNITY_BASE)
-        {
-            HttpWebRequest request = (HttpWebRequest)WebRequest.Create(url);
-            request.Method = method;
-            request.Accept = "text/javascript, text/html, application/xml, text/xml, */*";
-            request.UserAgent = "Mozilla/5.0 (Linux; U; Android 4.1.1; en-us; Google Nexus 4 - 4.1.1 - API 16 - 768x1280 Build/JRO03S) AppleWebKit/534.30 (KHTML, like Gecko) Version/4.0 Mobile Safari/534.30";
-            request.AutomaticDecompression = DecompressionMethods.Deflate | DecompressionMethods.GZip;
-            request.Referer = referer;
-
-            if (headers != null)
-            {
-                request.Headers.Add(headers);
-            }
-
-            if (cookies != null)
-            {
-                request.CookieContainer = cookies;
-            }
-
-            if (method == "POST")
-            {
-                request.ContentType = "application/x-www-form-urlencoded; charset=UTF-8";
-                request.ContentLength = dataString.Length;
-
-                StreamWriter requestStream = new StreamWriter(request.GetRequestStream());
-                requestStream.Write(dataString);
-                requestStream.Close();
-            }
-
-            try
-            {
-                using (HttpWebResponse response = (HttpWebResponse)request.GetResponse())
-                {
-                    if (response.StatusCode != HttpStatusCode.OK)
-                    {
-                        HandleFailedWebRequestResponse(response, url);
-                        return null;
-                    }
-
-                    using (StreamReader responseStream = new StreamReader(response.GetResponseStream()))
-                    {
-                        string responseData = responseStream.ReadToEnd();
-                        return responseData;
-                    }
-                }
-            }
-            catch (WebException e)
-            {
-                HandleFailedWebRequestResponse(e.Response as HttpWebResponse, url);
-                return null;
-            }
-        }
-
-        public static async Task<string> RequestAsync(string url, string method, NameValueCollection data = null, CookieContainer cookies = null, NameValueCollection headers = null, string referer = APIEndpoints.COMMUNITY_BASE)
-        {
-            string query = (data == null ? string.Empty : string.Join("&", Array.ConvertAll(data.AllKeys, key => String.Format("{0}={1}", WebUtility.UrlEncode(key), WebUtility.UrlEncode(data[key])))));
-            if (method == "GET")
-            {
-                url += (url.Contains("?") ? "&" : "?") + query;
-            }
-
-            HttpWebRequest request = (HttpWebRequest)WebRequest.Create(url);
-            request.Method = method;
-            request.Accept = "text/javascript, text/html, application/xml, text/xml, */*";
-            request.UserAgent = "Mozilla/5.0 (Linux; U; Android 4.1.1; en-us; Google Nexus 4 - 4.1.1 - API 16 - 768x1280 Build/JRO03S) AppleWebKit/534.30 (KHTML, like Gecko) Version/4.0 Mobile Safari/534.30";
-            request.AutomaticDecompression = DecompressionMethods.Deflate | DecompressionMethods.GZip;
-            request.Referer = referer;
-
-            if (headers != null)
-            {
-                request.Headers.Add(headers);
-            }
-
-            if (cookies != null)
-            {
-                request.CookieContainer = cookies;
-            }
-
-            if (method == "POST")
-            {
-                request.ContentType = "application/x-www-form-urlencoded; charset=UTF-8";
-                request.ContentLength = query.Length;
-
-                StreamWriter requestStream = new StreamWriter(request.GetRequestStream());
-                await requestStream.WriteAsync(query);
-                requestStream.Close();
-            }
-
-            try
-            {
-                HttpWebResponse response = (HttpWebResponse)await request.GetResponseAsync();
-
-                if (response.StatusCode != HttpStatusCode.OK)
-                {
-                    HandleFailedWebRequestResponse(response, url);
-                    return null;
-                }
-
-                using (StreamReader responseStream = new StreamReader(response.GetResponseStream()))
-                {
-                    string responseData = await responseStream.ReadToEndAsync();
-                    return responseData;
-                }
-            }
-            catch (WebException e)
-            {
-                HandleFailedWebRequestResponse(e.Response as HttpWebResponse, url);
-                return null;
-            }
+            return client;
         }
 
         /// <summary>
-        /// Raise exceptions relevant to this HttpWebResponse -- EG, to signal that our oauth token has expired.
+        /// Makes a GET (receive from server) request and returns the resulting string.
         /// </summary>
-        private static void HandleFailedWebRequestResponse(HttpWebResponse response, string requestURL)
-        {
-            if (response == null) return;
+        /// <param name="url">Where to send the GET request.</param>
+        /// <param name="cookies">Cookies to use in the <see cref="HttpClient"/>.</param>
+        /// <returns>Response from a GET request to <paramref name="url"/>.</returns>
+        public static async Task<string> GET(string url, CookieContainer? cookies = null) {
+            using var client = CreateHttpClient(cookies ?? new CookieContainer());
+            var response = await client.GetStringAsync(url);
+            return response;
+        }
 
-            //Redirecting -- likely to a steammobile:// URI
-            if (response.StatusCode == HttpStatusCode.Found)
-            {
-                var location = response.Headers.Get("Location");
-                if (!string.IsNullOrEmpty(location))
-                {
-                    //Our OAuth token has expired. This is given both when we must refresh our session, or the entire OAuth Token cannot be refreshed anymore.
-                    //Thus, we should only throw this exception when we're attempting to refresh our session.
-                    if (location == "steammobile://lostauth" && requestURL == APIEndpoints.MOBILEAUTH_GETWGTOKEN)
-                    {
-                        throw new SteamGuardAccount.WGTokenExpiredException();
-                    }
-                }
-            }
+        /// <summary>
+        /// Makes a POST (send to server) request and returns the resulting string.
+        /// </summary>
+        /// <param name="url">Where to send the POST request.</param>
+        /// <param name="cookies">Cookies to use in the <see cref="HttpClient"/>.</param>
+        /// <param name="body">Data to POST.</param>
+        /// <returns>Response from a POST request to <paramref name="url"/>.</returns>
+        public static async Task<string> POST(string url, NameValueCollection? body = null, CookieContainer? cookies = null) {
+            body ??= new NameValueCollection();
+            // Convert the NameValueCollection to IEnumerable<KeyValuePair<string, string>>
+            IEnumerable<KeyValuePair<string, string>> bodyPairs = body.AllKeys
+                .Cast<string>()
+                .SelectMany(
+                    key => body.GetValues(key) ?? Array.Empty<string>(),
+                    (key, value) => new KeyValuePair<string, string>(key, value)
+                );
+
+
+            using var client = CreateHttpClient(cookies ?? new CookieContainer());
+            var response = await client.PostAsync(url, new FormUrlEncodedContent(bodyPairs));
+
+            response.EnsureSuccessStatusCode();
+            string responseString = await response.Content.ReadAsStringAsync();
+            return responseString;
         }
     }
 }

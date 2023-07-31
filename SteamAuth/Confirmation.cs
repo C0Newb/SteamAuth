@@ -1,69 +1,57 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
+﻿using System.Text.Json.Serialization;
 
-namespace SteamAuth
-{
-    public class Confirmation
-    {
-        /// <summary>
-        /// The ID of this confirmation
-        /// </summary>
-        public ulong ID;
+namespace SteamAuth {
+    public class Confirmation {
+        [JsonPropertyName("id")]
+        public ulong ID { get; set; }
 
-        /// <summary>
-        /// The unique key used to act upon this confirmation.
-        /// </summary>
-        public ulong Key;
+        [JsonPropertyName("nonce")]
+        public ulong Key { get; set; }
 
-        /// <summary>
-        /// The value of the data-type HTML attribute returned for this contribution.
-        /// </summary>
-        public int IntType;
+        [JsonPropertyName("creator_id")]
+        public ulong Creator { get; set; }
 
-        /// <summary>
-        /// Represents either the Trade Offer ID or market transaction ID that caused this confirmation to be created.
-        /// </summary>
-        public ulong Creator;
+        [JsonPropertyName("headline")]
+        public string Headline { get; set; } = string.Empty;
 
-        /// <summary>
-        /// The type of this confirmation.
-        /// </summary>
-        public ConfirmationType ConfType;
-        
-        public Confirmation(ulong id, ulong key, int type, ulong creator)
-        {
-            this.ID = id;
-            this.Key = key;
-            this.IntType = type;
-            this.Creator = creator;
+        [JsonPropertyName("summary")]
+        public List<string>? Summary { get; set; }
 
-            //Do a switch simply because we're not 100% certain of all the possible types.
-            switch (type)
-            {
-                case 1:
-                    this.ConfType = ConfirmationType.GenericConfirmation;
-                    break;
-                case 2:
-                    this.ConfType = ConfirmationType.Trade;
-                    break;
-                case 3:
-                    this.ConfType = ConfirmationType.MarketSellTransaction;
-                    break;
-                default:
-                    this.ConfType = ConfirmationType.Unknown;
-                    break;
-            }
+        [JsonPropertyName("accept")]
+        public string Accept { get; set; } = string.Empty;
+
+        [JsonPropertyName("cancel")]
+        public string Cancel { get; set; } = string.Empty;
+
+        [JsonPropertyName("icon")]
+        public string Icon { get; set; } = string.Empty;
+
+        [JsonPropertyName("type")]
+        [JsonConverter(typeof(JsonStringEnumConverter))]
+        public EMobileConfirmationType ConfirmationType { get; set; } = EMobileConfirmationType.Invalid;
+
+        public enum EMobileConfirmationType {
+            Invalid = 0,
+            Test = 1,
+            Trade = 2,
+            MarketListing = 3,
+            FeatureOptOut = 4,
+            PhoneNumberChange = 5,
+            AccountRecovery = 6
         }
+    }
 
-        public enum ConfirmationType
-        {
-            GenericConfirmation,
-            Trade,
-            MarketSellTransaction,
-            Unknown
-        }
+    public class ConfirmationsResponse {
+        [JsonPropertyName("success")]
+        public bool Success { get; set; }
+
+        [JsonPropertyName("message")]
+        public string Message { get; set; } = string.Empty;
+
+        [JsonPropertyName("needauth")]
+        public bool NeedsAuthentication { get; set; }
+
+        [JsonPropertyName("conf")]
+        public Confirmation[]? Confirmations { get; set; }
     }
 }

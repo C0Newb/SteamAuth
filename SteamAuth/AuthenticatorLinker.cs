@@ -1,288 +1,247 @@
-﻿using Newtonsoft.Json;
-using System;
-using System.Collections.Specialized;
-using System.Net;
-using System.Security.Cryptography;
-using System.Threading;
+﻿using SteamAuth.APIEndpoints;
+using System.ComponentModel;
+using static SteamAuth.APIEndpoints.SetAccountPhoneNumber;
 
-namespace SteamAuth
-{
+namespace SteamAuth {
     /// <summary>
     /// Handles the linking process for a new mobile authenticator.
     /// </summary>
-    public class AuthenticatorLinker
-    {
+    public class AuthenticatorLinker {
+        #region Properties
         /// <summary>
-        /// Set to register a new phone number when linking. If a phone number is not set on the account, this must be set. If a phone number is set on the account, this must be null.
+        /// Session data containing an access token for a steam account generated with k_EAuthTokenPlatformType_MobileApp
         /// </summary>
-        public string PhoneNumber = null;
+        private readonly SessionData _session;
+
+        #region Linking details
+        /// <summary>
+        /// Phone number country code used in linking.
+        /// </summary>
+        public string PhoneCountryCode = string.Empty;
+
+        /// <summary>
+        /// Set to register a new phone number when linking.
+        /// If a phone number is not set on the account, this must be set. If a phone number is set on the account, this must be null.
+        /// </summary>
+        public string PhoneNumber = string.Empty;
+
 
         /// <summary>
         /// Randomly-generated device ID. Should only be generated once per linker.
         /// </summary>
         public string DeviceID { get; private set; }
 
+
+        /// <summary>
+        /// Email address the confirmation was sent to
+        /// </summary>
+        public string ConfirmationEmailAddress { get; private set; } = string.Empty;
+
+        /// <summary>
+        /// Whether the confirmation email was sent to authorize linking
+        /// </summary>
+        public bool ConfirmationEmailSent { get; private set; } = false;
+        #endregion
+
         /// <summary>
         /// After the initial link step, if successful, this will be the SteamGuard data for the account. PLEASE save this somewhere after generating it; it's vital data.
         /// </summary>
-        public SteamGuardAccount LinkedAccount { get; private set; }
+        public SteamGuardAccount? LinkedAccount { get; private set; }
 
         /// <summary>
         /// True if the authenticator has been fully finalized.
         /// </summary>
         public bool Finalized = false;
+        #endregion
 
-        private SessionData _session;
-        private CookieContainer _cookies;
-        private bool confirmationEmailSent = false;
 
-        public AuthenticatorLinker(SessionData session)
-        {
-            this._session = session;
-            this.DeviceID = GenerateDeviceID();
+        private readonly TwoFactorService TwoFactorService;
+        private readonly PhoneService PhoneService;
 
-            this._cookies = new CookieContainer();
-            session.AddCookies(_cookies);
+
+        /// <summary>
+        /// Create a new instance of AuthenticatorLinker
+        /// </summary>
+        /// <param name="accessToken">Access token for a Steam account created with k_EAuthTokenPlatformType_MobileApp</param>
+        /// <param name="steamid">64 bit formatted steamid for the account</param>
+        public AuthenticatorLinker(SessionData sessionData) {
+            _session = sessionData;
+            DeviceID = GenerateDeviceID();
+            TwoFactorService = new TwoFactorService(sessionData.SteamID, sessionData.AccessToken);
+            PhoneService = new PhoneService(_session.SteamID, _session.AccessToken);
         }
 
-        public LinkResult AddAuthenticator()
-        {
-            bool hasPhone = _hasPhoneAttached();
-            if (hasPhone && PhoneNumber != null)
-                return LinkResult.MustRemovePhoneNumber;
-            if (!hasPhone && PhoneNumber == null)
-                return LinkResult.MustProvidePhoneNumber;
+        /// <summary>
+        /// Generates a random "device id" in the form of <c>android:00000000-0000-0000-0000-000000000000</c>
+        /// </summary>
+        /// <returns></returns>
+        public static string GenerateDeviceID() {
+            return "android:" + Guid.NewGuid().ToString();
+        }
 
-            if (!hasPhone) {
-                if (confirmationEmailSent) {
-                    if (!_checkEmailConfirmation()) {
-                    return LinkResult.GeneralFailure;
-                }
-                } else if (!_addPhoneNumber()) {
-                    return LinkResult.GeneralFailure;
-                } else {
-                    confirmationEmailSent = true;
+        /// <summary>
+        /// First step in adding a mobile authenticator to an account
+        /// </summary>
+        public async Task<LinkResult> AddAuthenticator() {
+            // This method will be called again once the user confirms their phone number email
+            if (ConfirmationEmailSent) {
+                // Check if email was confirmed
+                bool isStillWaiting = await IsAccountWaitingForEmailConfirmation();
+                if (isStillWaiting) {
                     return LinkResult.MustConfirmEmail;
+                } else {
+                    // Now send the SMS to the phone number
+                    await SendPhoneVerificationCode();
+                    await Task.Delay(1500);
                 }
             }
 
-            var postData = new NameValueCollection();
-            postData.Add("access_token", _session.OAuthToken);
-            postData.Add("steamid", _session.SteamID.ToString());
-            postData.Add("authenticator_type", "1");
-            postData.Add("device_identifier", this.DeviceID);
-            postData.Add("sms_phone_id", "1");
+            // Make request to ITwoFactorService/AddAuthenticator
+            var addAuthenticatorResponse = await TwoFactorService.AddAuthenticator.Execute(DeviceID);
 
-            string response = SteamWeb.MobileLoginRequest(APIEndpoints.STEAMAPI_BASE + "/ITwoFactorService/AddAuthenticator/v0001", "POST", postData);
-            if (response == null) return LinkResult.GeneralFailure;
-
-            var addAuthenticatorResponse = JsonConvert.DeserializeObject<AddAuthenticatorResponse>(response);
-            if (addAuthenticatorResponse == null || addAuthenticatorResponse.Response == null)
-            {
+            if (addAuthenticatorResponse == null)
                 return LinkResult.GeneralFailure;
+
+            // Status 2 means no phone number is on the account
+            if (addAuthenticatorResponse.Status == 2) {
+                if (PhoneNumber == null) {
+                    return LinkResult.MustProvidePhoneNumber;
+                } else {
+                    // Add phone number
+
+                    // Get country code
+                    string countryCode = PhoneCountryCode;
+
+                    // If given country code is null, use the one from the Steam account
+                    if (string.IsNullOrEmpty(countryCode)) {
+                        countryCode = await getUserCountry() ?? "US";
+                    }
+
+                    // Set the phone number
+                    var res = await _setAccountPhoneNumber(this.PhoneNumber, countryCode);
+
+                    // Make sure it's successful then respond that we must confirm via email
+                    if (res != null && res.ConfirmationEmailAddress != null) {
+                        ConfirmationEmailAddress = res.ConfirmationEmailAddress;
+                        ConfirmationEmailSent = true;
+                        return LinkResult.MustConfirmEmail;
+                    }
+
+                    // If something else fails, we end up here
+                    return LinkResult.FailureAddingPhone;
+                }
             }
 
-            if (addAuthenticatorResponse.Response.Status == 29)
-            {
+            if (addAuthenticatorResponse.Status == 29)
                 return LinkResult.AuthenticatorPresent;
-            }
 
-            if (addAuthenticatorResponse.Response.Status != 1)
-            {
+            if (addAuthenticatorResponse.Status != 1)
                 return LinkResult.GeneralFailure;
-            }
 
-            this.LinkedAccount = addAuthenticatorResponse.Response;
-            LinkedAccount.Session = this._session;
-            LinkedAccount.DeviceID = this.DeviceID;
+            // Setup this.LinkedAccount
+            LinkedAccount = addAuthenticatorResponse;
+            LinkedAccount.DeviceID = DeviceID;
+            LinkedAccount.Session = _session;
 
             return LinkResult.AwaitingFinalization;
         }
 
-        public FinalizeResult FinalizeAddAuthenticator(string smsCode)
-        {
-            //The act of checking the SMS code is necessary for Steam to finalize adding the phone number to the account.
-            //Of course, we only want to check it if we're adding a phone number in the first place...
+        public async Task<FinalizeResult> FinalizeAddAuthenticator(string smsCode) {
+            if (LinkedAccount == null)
+                throw new NullReferenceException(nameof(LinkedAccount));
 
-            if (!String.IsNullOrEmpty(this.PhoneNumber) && !this._checkSMSCode(smsCode))
-            {
-                return FinalizeResult.BadSMSCode;
-            }
-
-            var postData = new NameValueCollection();
-            postData.Add("steamid", _session.SteamID.ToString());
-            postData.Add("access_token", _session.OAuthToken);
-            postData.Add("activation_code", smsCode);
             int tries = 0;
-            while (tries <= 30)
-            {
-                postData.Set("authenticator_code", LinkedAccount.GenerateSteamGuardCode());
-                postData.Set("authenticator_time", TimeAligner.GetSteamTime().ToString());
+            while (tries <= 10) {
+                var finalizeAuthenticatorResponse = await TwoFactorService.FinalizeAddAuthenticator.Execute(LinkedAccount.GenerateSteamGuardCode(), smsCode);
 
-                string response = SteamWeb.MobileLoginRequest(APIEndpoints.STEAMAPI_BASE + "/ITwoFactorService/FinalizeAddAuthenticator/v0001", "POST", postData);
-                if (response == null) return FinalizeResult.GeneralFailure;
-
-                var finalizeResponse = JsonConvert.DeserializeObject<FinalizeAuthenticatorResponse>(response);
-
-                if (finalizeResponse == null || finalizeResponse.Response == null)
-                {
+                if (finalizeAuthenticatorResponse == null || finalizeAuthenticatorResponse == null) {
                     return FinalizeResult.GeneralFailure;
                 }
 
-                if (finalizeResponse.Response.Status == 89)
-                {
+                if (finalizeAuthenticatorResponse.Status == 89) {
                     return FinalizeResult.BadSMSCode;
                 }
 
-                if (finalizeResponse.Response.Status == 88)
-                {
-                    if (tries >= 30)
-                    {
+                if (finalizeAuthenticatorResponse.Status == 88) {
+                    if (tries >= 10) {
                         return FinalizeResult.UnableToGenerateCorrectCodes;
                     }
                 }
 
-                if (!finalizeResponse.Response.Success)
-                {
+                if (!finalizeAuthenticatorResponse.Success) {
                     return FinalizeResult.GeneralFailure;
                 }
 
-                if (finalizeResponse.Response.WantMore)
-                {
+                if (finalizeAuthenticatorResponse.WantMore) {
                     tries++;
                     continue;
                 }
 
-                this.LinkedAccount.FullyEnrolled = true;
+                LinkedAccount.FullyEnrolled = true;
                 return FinalizeResult.Success;
             }
 
-            return FinalizeResult.GeneralFailure;
+            return FinalizeResult.TooManyTries;
         }
 
-        private bool _checkSMSCode(string smsCode)
-        {
-            var postData = new NameValueCollection();
-            postData.Add("op", "check_sms_code");
-            postData.Add("arg", smsCode);
-            postData.Add("checkfortos", "0");
-            postData.Add("skipvoip", "1");
-            postData.Add("sessionid", _session.SessionID);
-
-            string response = SteamWeb.Request(APIEndpoints.COMMUNITY_BASE + "/steamguard/phoneajax", "POST", postData, _cookies);
-            if (response == null) return false;
-
-            var addPhoneNumberResponse = JsonConvert.DeserializeObject<AddPhoneResponse>(response);
-
-            if (!addPhoneNumberResponse.Success)
-            {
-                Thread.Sleep(3500); //It seems that Steam needs a few seconds to finalize the phone number on the account.
-                return _hasPhoneAttached();
-            }
-
-            return true;
+        private async Task<string?> getUserCountry() {
+            UserAccountService userAccountService = new UserAccountService(_session.SteamID, _session.AccessToken);
+            var response = await userAccountService.GetUserCountry.Execute();
+            return response?.Country;
         }
 
-        private bool _addPhoneNumber()
-        {
-            var postData = new NameValueCollection();
-            postData.Add("op", "add_phone_number");
-            postData.Add("arg", PhoneNumber);
-            postData.Add("sessionid", _session.SessionID);
-
-            string response = SteamWeb.Request(APIEndpoints.COMMUNITY_BASE + "/steamguard/phoneajax", "POST", postData, _cookies);
-            if (response == null) return false;
-
-            var addPhoneNumberResponse = JsonConvert.DeserializeObject<AddPhoneResponse>(response);
-            return addPhoneNumberResponse.Success;
+        private async Task<SetAccountPhoneNumberResponse?> _setAccountPhoneNumber(string phoneNumber, string countryCode) {
+            var response = await PhoneService.SetAccountPhoneNumber.Execute(phoneNumber, countryCode);
+            return response;
         }
 
-        private bool _checkEmailConfirmation() {
-            var postData = new NameValueCollection();
-            postData.Add("op", "email_confirmation");
-            postData.Add("arg", "");
-            postData.Add("sessionid", _session.SessionID);
-
-            string response = SteamWeb.Request(APIEndpoints.COMMUNITY_BASE + "/steamguard/phoneajax", "POST", postData, _cookies);
-            if (response == null) return false;
-
-            var emailConfirmationResponse = JsonConvert.DeserializeObject<AddPhoneResponse>(response);
-             return emailConfirmationResponse.Success;
+        private async Task<bool> IsAccountWaitingForEmailConfirmation() {
+            var response = await PhoneService.IsAccountWaitingForEmailConfirmation.Execute();
+            return response?.AwaitingEmailConfirmation == true;
         }
 
-        private bool _hasPhoneAttached() {
-            var postData = new NameValueCollection();
-            postData.Add("op", "has_phone");
-            postData.Add("arg", "null");
-            postData.Add("sessionid", _session.SessionID);
-
-            string response = SteamWeb.Request(APIEndpoints.COMMUNITY_BASE + "/steamguard/phoneajax", "POST", postData, _cookies);
-            if (response == null) return false;
-
-            var hasPhoneResponse = JsonConvert.DeserializeObject<HasPhoneResponse>(response);
-            return hasPhoneResponse.HasPhone;
+        private async Task<bool> SendPhoneVerificationCode() {
+            return await PhoneService.SendPhoneVerificationCode.Execute();
         }
 
-        public enum LinkResult
-        {
-            MustProvidePhoneNumber, //No phone number on the account
-            MustRemovePhoneNumber, //A phone number is already on the account
-            MustConfirmEmail, //User need to click link from confirmation email
-            AwaitingFinalization, //Must provide an SMS code
-            GeneralFailure, //General failure (really now!)
-            AuthenticatorPresent
+        public enum LinkResult {
+            [Description("No phone number linked to the account.")]
+            MustProvidePhoneNumber,
+
+            [Description("A phone number is already linked to the account. This must be removed before continuing.")]
+            MustRemovePhoneNumber,
+
+            [Description("You need to click the link from in the confirmation email.")]
+            MustConfirmEmail,
+
+            [Description("Awaiting finalization, you must provide an SMS code.")]
+            AwaitingFinalization,
+
+            [Description("Unknown failure.")]
+            GeneralFailure,
+
+            [Description("Authenticator already setup.")]
+            AuthenticatorPresent,
+
+            [Description("Unknown issue adding the phone number to the account.")]
+            FailureAddingPhone
         }
 
-        public enum FinalizeResult
-        {
+        public enum FinalizeResult {
+            [Description("Unknown failure.")]
+            GeneralFailure,
+
+            [Description("Provided SMS confirmation code was incorrect.")]
             BadSMSCode,
+
+            [Description("Unable to generate correct/valid authentication codes.")]
             UnableToGenerateCorrectCodes,
+
+            [Description("Successfully linked.")]
             Success,
-            GeneralFailure
-        }
 
-        private class AddAuthenticatorResponse
-        {
-            [JsonProperty("response")]
-            public SteamGuardAccount Response { get; set; }
-        }
-
-        private class FinalizeAuthenticatorResponse
-        {
-            [JsonProperty("response")]
-            public FinalizeAuthenticatorInternalResponse Response { get; set; }
-
-            internal class FinalizeAuthenticatorInternalResponse
-            {
-                [JsonProperty("status")]
-                public int Status { get; set; }
-
-                [JsonProperty("server_time")]
-                public long ServerTime { get; set; }
-
-                [JsonProperty("want_more")]
-                public bool WantMore { get; set; }
-
-                [JsonProperty("success")]
-                public bool Success { get; set; }
-            }
-        }
-
-        private class HasPhoneResponse
-        {
-            [JsonProperty("has_phone")]
-            public bool HasPhone { get; set; }
-        }
-
-        private class AddPhoneResponse
-        {
-            [JsonProperty("success")]
-            public bool Success { get; set; }
-        }
-
-        public static string GenerateDeviceID()
-        {
-          return "android:" + Guid.NewGuid().ToString();
+            [Description("Too many attempts.")]
+            TooManyTries,
         }
     }
 }

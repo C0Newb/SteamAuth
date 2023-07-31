@@ -1,410 +1,288 @@
-﻿using Newtonsoft.Json;
+﻿using SteamAuth.APIEndpoints;
+using SteamAuth.Enums;
 using System;
-using System.Collections.Generic;
 using System.Collections.Specialized;
+using System.Linq;
 using System.Net;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 
-namespace SteamAuth
-{
-    public class SteamGuardAccount
-    {
-        [JsonProperty("shared_secret")]
-        public string SharedSecret { get; set; }
+namespace SteamAuth {
+    public class SteamGuardAccount {
+        [JsonPropertyName("shared_secret")]
+        public string? SharedSecret { get; set; }
 
-        [JsonProperty("serial_number")]
-        public string SerialNumber { get; set; }
+        [JsonPropertyName("serial_number")]
+        public string? SerialNumber { get; set; }
 
-        [JsonProperty("revocation_code")]
-        public string RevocationCode { get; set; }
+        [JsonPropertyName("revocation_code")]
+        public string RevocationCode { get; set; } = string.Empty;
 
-        [JsonProperty("uri")]
-        public string URI { get; set; }
+        [JsonPropertyName("uri")]
+        public string? URI { get; set; }
 
-        [JsonProperty("server_time")]
+        [JsonPropertyName("server_time")]
         public long ServerTime { get; set; }
 
-        [JsonProperty("account_name")]
-        public string AccountName { get; set; }
+        [JsonPropertyName("account_name")]
+        public string? AccountName { get; set; }
 
-        [JsonProperty("token_gid")]
-        public string TokenGID { get; set; }
+        [JsonPropertyName("token_gid")]
+        public string? TokenGID { get; set; }
 
-        [JsonProperty("identity_secret")]
-        public string IdentitySecret { get; set; }
+        [JsonPropertyName("identity_secret")]
+        public string? IdentitySecret { get; set; }
 
-        [JsonProperty("secret_1")]
-        public string Secret1 { get; set; }
+        [JsonPropertyName("secret_1")]
+        public string? Secret1 { get; set; }
 
-        [JsonProperty("status")]
+        [JsonPropertyName("status")]
         public int Status { get; set; }
 
-        [JsonProperty("device_id")]
-        public string DeviceID { get; set; }
+        [JsonPropertyName("device_id")]
+        public string? DeviceID { get; set; }
 
         /// <summary>
         /// Set to true if the authenticator has actually been applied to the account.
         /// </summary>
-        [JsonProperty("fully_enrolled")]
+        [JsonPropertyName("fully_enrolled")]
         public bool FullyEnrolled { get; set; }
 
-        public SessionData Session { get; set; }
+        public SessionData? Session { get; set; }
 
-        private static byte[] steamGuardCodeTranslations = new byte[] { 50, 51, 52, 53, 54, 55, 56, 57, 66, 67, 68, 70, 71, 72, 74, 75, 77, 78, 80, 81, 82, 84, 86, 87, 88, 89 };
+        private static readonly byte[] steamGuardCodeTranslations = new byte[] { 50, 51, 52, 53, 54, 55, 56, 57, 66, 67, 68, 70, 71, 72, 74, 75, 77, 78, 80, 81, 82, 84, 86, 87, 88, 89 };
 
-        public bool DeactivateAuthenticator(int scheme = 2)
-        {
-            var postData = new NameValueCollection();
-            postData.Add("steamid", this.Session.SteamID.ToString());
-            postData.Add("steamguard_scheme", scheme.ToString());
-            postData.Add("revocation_code", this.RevocationCode);
-            postData.Add("access_token", this.Session.OAuthToken);
+        /// <summary>
+        /// Remove steam guard from this account.
+        /// </summary>
+        /// <param name="scheme">Which Steam Guard method to return to.</param>
+        /// <returns></returns>
+        public async Task<bool> DeactivateAuthenticator(SteamGuardScheme scheme) {
+            TwoFactorService twoFactorService = new TwoFactorService(null, Session?.AccessToken);
+            var response = await twoFactorService.RemoveAuthenticator.Execute(RevocationCode, scheme);
 
-            try
-            {
-                string response = SteamWeb.MobileLoginRequest(APIEndpoints.STEAMAPI_BASE + "/ITwoFactorService/RemoveAuthenticator/v0001", "POST", postData);
-                var removeResponse = JsonConvert.DeserializeObject<RemoveAuthenticatorResponse>(response);
-
-                if (removeResponse == null || removeResponse.Response == null || !removeResponse.Response.Success) return false;
-                return true;
-            }
-            catch (Exception)
-            {
-                return false;
-            }
+            return response?.Success == true;
         }
 
-        public string GenerateSteamGuardCode()
-        {
+        public string GenerateSteamGuardCode() {
             return GenerateSteamGuardCodeForTime(TimeAligner.GetSteamTime());
         }
 
-        public string GenerateSteamGuardCodeForTime(long time)
-        {
-            if (this.SharedSecret == null || this.SharedSecret.Length == 0)
-            {
-                return "";
-            }
+        public async Task<string> GenerateSteamGuardCodeAsync() {
+            return GenerateSteamGuardCodeForTime(await TimeAligner.GetSteamTimeAsync());
+        }
 
-            string sharedSecretUnescaped = Regex.Unescape(this.SharedSecret);
-            byte[] sharedSecretArray = Convert.FromBase64String(sharedSecretUnescaped);
+        public string GenerateSteamGuardCodeForTime(long time) {
+            if (string.IsNullOrEmpty(SharedSecret))
+                return string.Empty;
+
+            byte[] sharedSecretArray = Convert.FromBase64String(Regex.Unescape(SharedSecret));
             byte[] timeArray = new byte[8];
 
             time /= 30L;
 
-            for (int i = 8; i > 0; i--)
-            {
+            for (int i = 8; i > 0; i--) {
                 timeArray[i - 1] = (byte)time;
                 time >>= 8;
             }
 
-            HMACSHA1 hmacGenerator = new HMACSHA1();
-            hmacGenerator.Key = sharedSecretArray;
-            byte[] hashedData = hmacGenerator.ComputeHash(timeArray);
+            HMACSHA1 hMACSHA1 = new HMACSHA1();
+            hMACSHA1.Key = sharedSecretArray;
+            byte[] hashedData = hMACSHA1.ComputeHash(timeArray);
             byte[] codeArray = new byte[5];
-            try
-            {
+            try {
                 byte b = (byte)(hashedData[19] & 0xF);
                 int codePoint = (hashedData[b] & 0x7F) << 24 | (hashedData[b + 1] & 0xFF) << 16 | (hashedData[b + 2] & 0xFF) << 8 | (hashedData[b + 3] & 0xFF);
 
-                for (int i = 0; i < 5; ++i)
-                {
+                for (int i = 0; i < 5; ++i) {
                     codeArray[i] = steamGuardCodeTranslations[codePoint % steamGuardCodeTranslations.Length];
                     codePoint /= steamGuardCodeTranslations.Length;
                 }
-            }
-            catch (Exception)
-            {
-                return null; //Change later, catch-alls are bad!
+            } catch (Exception) {
+                return string.Empty;
             }
             return Encoding.UTF8.GetString(codeArray);
         }
 
-        public Confirmation[] FetchConfirmations()
-        {
-            string url = this.GenerateConfirmationURL();
-
-            CookieContainer cookies = new CookieContainer();
-            this.Session.AddCookies(cookies);
-
-            string response = SteamWeb.Request(url, "GET", "", cookies);
+        public Confirmation[]? FetchConfirmations() {
+            string url = GenerateConfirmationURL();
+            string response = SteamWeb.GET(url, Session?.GetCookies()).Result;
             return FetchConfirmationInternal(response);
         }
 
-        public async Task<Confirmation[]> FetchConfirmationsAsync()
-        {
+        public async Task<Confirmation[]?> FetchConfirmationsAsync() {
             string url = this.GenerateConfirmationURL();
-
-            CookieContainer cookies = new CookieContainer();
-            this.Session.AddCookies(cookies);
-
-            string response = await SteamWeb.RequestAsync(url, "GET", null, cookies);
+            string response = await SteamWeb.GET(url, Session?.GetCookies());
             return FetchConfirmationInternal(response);
         }
 
-        private Confirmation[] FetchConfirmationInternal(string response)
-        {
+        private Confirmation[]? FetchConfirmationInternal(string response) {
+            var confirmationsResponse = JsonSerializer.Deserialize<ConfirmationsResponse>(response);
 
-            /*So you're going to see this abomination and you're going to be upset.
-              It's understandable. But the thing is, regex for HTML -- while awful -- makes this way faster than parsing a DOM, plus we don't need another library.
-              And because the data is always in the same place and same format... It's not as if we're trying to naturally understand HTML here. Just extract strings.
-              I'm sorry. */
+            if (confirmationsResponse == null)
+                throw new Exception("Failed to fetch confirmations.");
 
-            Regex confRegex = new Regex("<div class=\"mobileconf_list_entry\" id=\"conf[0-9]+\" data-confid=\"(\\d+)\" data-key=\"(\\d+)\" data-type=\"(\\d+)\" data-creator=\"(\\d+)\"");
-
-            if (response == null || !confRegex.IsMatch(response))
-            {
-                if (response == null || !response.Contains("<div>Nothing to confirm</div>"))
-                {
-                    throw new WGTokenInvalidException();
-                }
-
-                return new Confirmation[0];
+            if (!confirmationsResponse.Success) {
+                throw new Exception(confirmationsResponse.Message);
             }
 
-            MatchCollection confirmations = confRegex.Matches(response);
-
-            List<Confirmation> ret = new List<Confirmation>();
-            foreach (Match confirmation in confirmations)
-            {
-                if (confirmation.Groups.Count != 5) continue;
-
-                if (!ulong.TryParse(confirmation.Groups[1].Value, out ulong confID) ||
-                    !ulong.TryParse(confirmation.Groups[2].Value, out ulong confKey) ||
-                    !int.TryParse(confirmation.Groups[3].Value, out int confType) ||
-                    !ulong.TryParse(confirmation.Groups[4].Value, out ulong confCreator))
-                {
-                    continue;
-                }
-
-                ret.Add(new Confirmation(confID, confKey, confType, confCreator));
+            if (confirmationsResponse.NeedsAuthentication) {
+                throw new Exception("Failed to fetch confirmations, needs authentication");
             }
 
-            return ret.ToArray();
+            return confirmationsResponse?.Confirmations;
         }
 
-        /// <summary>
-        /// Deprecated. Simply returns conf.Creator.
-        /// </summary>
-        /// <param name="conf"></param>
-        /// <returns>The Creator field of conf</returns>
-        public long GetConfirmationTradeOfferID(Confirmation conf)
-        {
-            if (conf.ConfType != Confirmation.ConfirmationType.Trade)
-                throw new ArgumentException("conf must be a trade confirmation.");
-
-            return (long)conf.Creator;
+        public async Task<bool> AcceptMultipleConfirmations(Confirmation[] confirmations) {
+            return await SendMultiConfirmationAjax(confirmations, "allow");
         }
 
-        public bool AcceptMultipleConfirmations(Confirmation[] confs)
-        {
-            return _sendMultiConfirmationAjax(confs, "allow");
+        public async Task<bool> DenyMultipleConfirmations(Confirmation[] confirmations) {
+            return await SendMultiConfirmationAjax(confirmations, "cancel");
         }
 
-        public bool DenyMultipleConfirmations(Confirmation[] confs)
-        {
-            return _sendMultiConfirmationAjax(confs, "cancel");
+        public async Task<bool> AcceptConfirmation(Confirmation confirmation) {
+            return await SendConfirmationAjax(confirmation, "allow");
         }
 
-        public bool AcceptConfirmation(Confirmation conf)
-        {
-            return _sendConfirmationAjax(conf, "allow");
+        public async Task<bool> DenyConfirmation(Confirmation confirmation) {
+            return await SendConfirmationAjax(confirmation, "cancel");
         }
 
-        public bool DenyConfirmation(Confirmation conf)
-        {
-            return _sendConfirmationAjax(conf, "cancel");
-        }
-
-        [Obsolete("You must do a full login to get updated cookies now")]
-        public bool RefreshSession()
-        {
-            return true;
-        }
-
-        [Obsolete("You must do a full login to get updated cookies now")]
-        public async Task<bool> RefreshSessionAsync()
-        {
-            return true;
-        }
-
-        private ConfirmationDetailsResponse _getConfirmationDetails(Confirmation conf)
-        {
-            string url = APIEndpoints.COMMUNITY_BASE + "/mobileconf/details/" + conf.ID + "?";
-            string queryString = GenerateConfirmationQueryParams("details");
-            url += queryString;
-
-            CookieContainer cookies = new CookieContainer();
-            this.Session.AddCookies(cookies);
-            string referer = GenerateConfirmationURL();
-
-            string response = SteamWeb.Request(url, "GET", "", cookies, null);
-            if (String.IsNullOrEmpty(response)) return null;
-
-            var confResponse = JsonConvert.DeserializeObject<ConfirmationDetailsResponse>(response);
-            if (confResponse == null) return null;
-            return confResponse;
-        }
-
-        private bool _sendConfirmationAjax(Confirmation conf, string op)
-        {
-            string url = APIEndpoints.COMMUNITY_BASE + "/mobileconf/ajaxop";
+        private async Task<bool> SendConfirmationAjax(Confirmation confirmation, string op) {
+            string url = Base.CommunityBase + "/mobileconf/ajaxop";
             string queryString = "?op=" + op + "&";
-            queryString += GenerateConfirmationQueryParams(op);
-            queryString += "&cid=" + conf.ID + "&ck=" + conf.Key;
+            // tag is different from op now
+            string tag = op == "allow" ? "accept" : "reject";
+            queryString += GenerateConfirmationQueryParameters(tag);
+            queryString += "&cid=" + confirmation.ID + "&ck=" + confirmation.Key;
             url += queryString;
 
-            CookieContainer cookies = new CookieContainer();
-            this.Session.AddCookies(cookies);
-            string referer = GenerateConfirmationURL();
-
-            string response = SteamWeb.Request(url, "GET", "", cookies, null);
+            string response = await SteamWeb.GET(url, Session?.GetCookies());
             if (response == null) return false;
 
-            SendConfirmationResponse confResponse = JsonConvert.DeserializeObject<SendConfirmationResponse>(response);
-            return confResponse.Success;
+            SendConfirmationResponse? confirmationResponse = JsonSerializer.Deserialize<SendConfirmationResponse>(response);
+            return confirmationResponse?.Success == true;
         }
 
-        private bool _sendMultiConfirmationAjax(Confirmation[] confs, string op)
-        {
-            string url = APIEndpoints.COMMUNITY_BASE + "/mobileconf/multiajaxop";
-
-            string query = "op=" + op + "&" + GenerateConfirmationQueryParams(op);
-            foreach (var conf in confs)
-            {
-                query += "&cid[]=" + conf.ID + "&ck[]=" + conf.Key;
+        private async Task<bool> SendMultiConfirmationAjax(Confirmation[] confirmations, string op) {
+            string url = Base.CommunityBase + "/mobileconf/multiajaxop";
+            // tag is different from op now
+            string tag = op == "allow" ? "accept" : "reject";
+            string query = "op=" + op + "&" + GenerateConfirmationQueryParameters(tag);
+            foreach (var confirmation in confirmations) {
+                query += "&cid[]=" + confirmation.ID + "&ck[]=" + confirmation.Key;
             }
 
-            CookieContainer cookies = new CookieContainer();
-            this.Session.AddCookies(cookies);
-            string referer = GenerateConfirmationURL();
-
-            string response = SteamWeb.Request(url, "POST", query, cookies, null);
+            string response;
+            using (CookieAwareWebClient wc = new CookieAwareWebClient()) {
+                wc.Encoding = Encoding.UTF8;
+                wc.CookieContainer = Session?.GetCookies() ?? new CookieContainer();
+                wc.Headers[HttpRequestHeader.UserAgent] = SteamWeb.MOBILE_APP_USER_AGENT;
+                wc.Headers[HttpRequestHeader.ContentType] = "application/x-www-form-urlencoded; charset=UTF-8";
+                response = await wc.UploadStringTaskAsync(new Uri(url), "POST", query);
+            }
             if (response == null) return false;
 
-            SendConfirmationResponse confResponse = JsonConvert.DeserializeObject<SendConfirmationResponse>(response);
-            return confResponse.Success;
+            SendConfirmationResponse? sendConfirmationResponse = JsonSerializer.Deserialize<SendConfirmationResponse>(response);
+            return sendConfirmationResponse?.Success == true;
         }
 
-        public string GenerateConfirmationURL(string tag = "conf")
-        {
-            string endpoint = APIEndpoints.COMMUNITY_BASE + "/mobileconf/conf?";
-            string queryString = GenerateConfirmationQueryParams(tag);
+        public string GenerateConfirmationURL(string tag = "conf") {
+            string endpoint = Base.CommunityBase + "/mobileconf/getlist?";
+            string queryString = GenerateConfirmationQueryParameters(tag);
             return endpoint + queryString;
         }
 
-        public string GenerateConfirmationQueryParams(string tag)
-        {
+        public string GenerateConfirmationQueryParameters(string tag) {
             if (String.IsNullOrEmpty(DeviceID))
                 throw new ArgumentException("Device ID is not present");
 
-            var queryParams = GenerateConfirmationQueryParamsAsNVC(tag);
+            var queryParameters = GenerateConfirmationQueryParametersAsNVC(tag);
 
-            return "p=" + queryParams["p"] + "&a=" + queryParams["a"] + "&k=" + queryParams["k"] + "&t=" + queryParams["t"] + "&m=android&tag=" + queryParams["tag"];
+            return string.Join("&", queryParameters.AllKeys.Select(key => $"{key}={queryParameters[key]}"));
         }
 
-        public NameValueCollection GenerateConfirmationQueryParamsAsNVC(string tag)
-        {
+        public NameValueCollection GenerateConfirmationQueryParametersAsNVC(string tag) {
             if (String.IsNullOrEmpty(DeviceID))
                 throw new ArgumentException("Device ID is not present");
 
             long time = TimeAligner.GetSteamTime();
 
-            var ret = new NameValueCollection();
-            ret.Add("p", this.DeviceID);
-            ret.Add("a", this.Session.SteamID.ToString());
-            ret.Add("k", _generateConfirmationHashForTime(time, tag));
-            ret.Add("t", time.ToString());
-            ret.Add("m", "android");
-            ret.Add("tag", tag);
+            var ret = new NameValueCollection {
+                { "p", DeviceID },
+                { "a", Session?.SteamID.ToString() },
+                { "k", GenerateConfirmationHashForTime(time, tag) },
+                { "t", time.ToString() },
+                { "m", "react" },
+                { "tag", tag }
+            };
 
             return ret;
         }
 
-        private string _generateConfirmationHashForTime(long time, string tag)
-        {
-            byte[] decode = Convert.FromBase64String(this.IdentitySecret);
+        private string GenerateConfirmationHashForTime(long time, string tag) {
+            if (IdentitySecret == null)
+                throw new NullReferenceException("IdentitySecret cannot be null.");
+
+            byte[] decode = Convert.FromBase64String(IdentitySecret);
             int n2 = 8;
-            if (tag != null)
-            {
-                if (tag.Length > 32)
-                {
+            if (tag != null) {
+                if (tag.Length > 32) {
                     n2 = 8 + 32;
-                }
-                else
-                {
+                } else {
                     n2 = 8 + tag.Length;
                 }
             }
             byte[] array = new byte[n2];
             int n3 = 8;
-            while (true)
-            {
+            while (true) {
                 int n4 = n3 - 1;
-                if (n3 <= 0)
-                {
+                if (n3 <= 0) {
                     break;
                 }
                 array[n4] = (byte)time;
                 time >>= 8;
                 n3 = n4;
             }
-            if (tag != null)
-            {
+            if (tag != null) {
                 Array.Copy(Encoding.UTF8.GetBytes(tag), 0, array, 8, n2 - 8);
             }
 
-            try
-            {
-                HMACSHA1 hmacGenerator = new HMACSHA1();
-                hmacGenerator.Key = decode;
-                byte[] hashedData = hmacGenerator.ComputeHash(array);
+            try {
+                HMACSHA1 hMACSHA1 = new HMACSHA1();
+                hMACSHA1.Key = decode;
+                byte[] hashedData = hMACSHA1.ComputeHash(array);
                 string encodedData = Convert.ToBase64String(hashedData, Base64FormattingOptions.None);
                 string hash = WebUtility.UrlEncode(encodedData);
                 return hash;
-            }
-            catch
-            {
-                return null;
+            } catch {
+                return string.Empty;
             }
         }
 
-        public class WGTokenInvalidException : Exception
-        {
+        public class WGTokenInvalidException : Exception {
         }
 
-        public class WGTokenExpiredException : Exception
-        {
+        public class WGTokenExpiredException : Exception {
         }
 
-        private class RemoveAuthenticatorResponse
-        {
-            [JsonProperty("response")]
-            public RemoveAuthenticatorInternalResponse Response { get; set; }
 
-            internal class RemoveAuthenticatorInternalResponse
-            {
-                [JsonProperty("success")]
-                public bool Success { get; set; }
-            }
-        }
-
-        private class SendConfirmationResponse
-        {
-            [JsonProperty("success")]
+        private class SendConfirmationResponse {
+            [JsonPropertyName("success")]
             public bool Success { get; set; }
         }
 
-        private class ConfirmationDetailsResponse
-        {
-            [JsonProperty("success")]
+        private class ConfirmationDetailsResponse {
+            [JsonPropertyName("success")]
             public bool Success { get; set; }
 
-            [JsonProperty("html")]
-            public string HTML { get; set; }
+            [JsonPropertyName("html")]
+            public string HTML { get; set; } = string.Empty;
         }
     }
 }
