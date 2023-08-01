@@ -3,7 +3,7 @@ using System.Net;
 
 namespace SteamAuth {
     /// <summary>
-    /// Helper class to make web requests, such as POST and GET.
+    /// Helper class to make web POST and GET requests.
     /// </summary>
     public class SteamWeb {
         /// <summary>

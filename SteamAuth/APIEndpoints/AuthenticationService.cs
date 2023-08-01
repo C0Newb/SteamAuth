@@ -5,6 +5,9 @@ using System.Text.Json.Serialization;
 using static SteamAuth.APIEndpoints.Base;
 
 namespace SteamAuth.APIEndpoints {
+    /// <summary>
+    /// Steam WebAPI: /IAuthenticationService "interface"
+    /// </summary>
     public class AuthenticationService : Base {
         public const string Path = "/IAuthenticationService";
 
@@ -35,6 +38,11 @@ namespace SteamAuth.APIEndpoints {
             public string? AccessToken { get; set; }
         }
 
+        /// <summary>
+        /// Regenerates the user's access token using their refresh token.
+        /// </summary>
+        /// <param name="refreshToken">User's session refresh token, <see cref="SteamGuardAccount.SessionData.RefreshToken"/>.</param>
+        /// <returns>New access token for the user.</returns>
         public async Task<GenerateAccessTokenForAppResponse?> Execute(string refreshToken) {
             NameValueCollection body = _parent.PostBody;
             body.Set("refresh_token", refreshToken);

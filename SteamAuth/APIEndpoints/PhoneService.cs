@@ -1,10 +1,12 @@
-﻿using System.Collections.Specialized;
-using System.Net;
+﻿using System.Net;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using static SteamAuth.APIEndpoints.Base;
 
 namespace SteamAuth.APIEndpoints {
+    /// <summary>
+    /// Steam WebAPI: /IPhoneService "interface"
+    /// </summary>
     public class PhoneService : Base {
         public const string Path = "/IPhoneService";
 
@@ -62,7 +64,6 @@ namespace SteamAuth.APIEndpoints {
         public Task<ConfirmAddPhoneToAccountResponse?> Execute() {
             throw new NotImplementedException();
         }
-
     }
 
     public class IsAccountWaitingForEmailConfirmation {
@@ -83,11 +84,7 @@ namespace SteamAuth.APIEndpoints {
         /// <summary>
         /// Checks whether the account is waiting for an email confirmation code
         /// </summary>
-        /// <param name="steamId">Steam Id</param>
-        /// <param name="deviceId">Device id</param>
-        /// <param name="smsPhoneId">Phone id</param>
-        /// <param name="authenticatorType">Authenticator type, set to <c>1</c></param>
-        /// <returns></returns>
+        /// <returns>If this account is waiting for an email confirmation.</returns>
         public async Task<IsAccountWaitingForEmailConfirmationResponse?> Execute() {
             string responseString = await _parent.POST(FullPath);
 
@@ -136,7 +133,7 @@ namespace SteamAuth.APIEndpoints {
         /// </summary>
         /// <param name="phoneNumber">Phone number.</param>
         /// <param name="countryCode">Phone number country code.</param>
-        /// <returns>Response data</returns>
+        /// <returns>Steam's response.</returns>
         public async Task<SetAccountPhoneNumberResponse?> Execute(string phoneNumber, string countryCode) {
             var body = _parent.PostBody;
             body.Set("phone_number", phoneNumber);

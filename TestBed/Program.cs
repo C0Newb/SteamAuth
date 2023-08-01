@@ -22,7 +22,7 @@ namespace TestBed {
                     break;
                 } else if (i.Key == ConsoleKey.Backspace) {
                     if (pwd.Length > 0) {
-                        pwd.Remove(pwd.Length - 1);
+                        _ = pwd.Remove(pwd.Length - 1);
                         Console.Write("\b \b");
                     }
                 } else if (i.KeyChar != '\u0000') // KeyChar == '\u0000' if the key pressed does not correspond to a printable character, e.g. F1, Pause-Break, etc
@@ -49,7 +49,7 @@ namespace TestBed {
                 };
             }
 
-            private void PressAnyKey() {
+            private static void PressAnyKey() {
                 Console.WriteLine();
                 Console.WriteLine("Press any key to continue...");
                 Console.ReadLine();
@@ -292,11 +292,9 @@ namespace TestBed {
                 Console.WriteLine();
                 Console.Write("Enter the account number: ");
                 if (int.TryParse(Console.ReadLine(), out int accountNumber) && accountNumber >= 1 && accountNumber <= accountFiles.Length) {
-                    string selectedFileName = Path.GetFileNameWithoutExtension(accountFiles[accountNumber - 1]);
-
                     string fileContents = File.ReadAllText(accountFiles[accountNumber - 1]);
                     
-                    //selectedAccount = JsonConvert.DeserializeObject<SteamGuardAccount>(fileContents);
+                    //selectedAccount = JsonConvert.DeserializeObject<SteamGuardAccount>(fileContents); <-- this is for backwards compatibility
                     selectedAccount = System.Text.Json.JsonSerializer.Deserialize<SteamGuardAccount>(fileContents);
 
                     Console.WriteLine();

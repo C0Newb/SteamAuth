@@ -4,6 +4,9 @@ using System.Text.Json;
 using static SteamAuth.APIEndpoints.Base;
 
 namespace SteamAuth.APIEndpoints {
+    /// <summary>
+    /// Steam Web API: /IMobileAuthService "interface"
+    /// </summary>
     public class MobileAuthService : Base {
         public const string Path = "/IMobileAuthService";
 
@@ -29,6 +32,10 @@ namespace SteamAuth.APIEndpoints {
         private readonly MobileAuthService _parent;
         public GetWGToken(MobileAuthService mobileAuthService) => _parent = mobileAuthService;
 
+        /// <summary>
+        /// Not sure
+        /// </summary>
+        /// <returns></returns>
         public async Task<GetWGTokenResponse?> Execute() {
             string responseString = await _parent.POST(FullPath, null);
 
@@ -53,6 +60,13 @@ namespace SteamAuth.APIEndpoints {
         private readonly MobileAuthService _parent;
         public MigrateMobileSession(MobileAuthService parent) => _parent = parent;
 
+        /// <summary>
+        /// Not implemented. Will send the request, no idea what it'll do ! :)
+        /// </summary>
+        /// <param name="token"></param>
+        /// <param name="signature"></param>
+        /// <param name="deviceDetails"></param>
+        /// <returns></returns>
         public Task<string> POST(string? token, string? signature, string deviceDetails) {
             NameValueCollection body = _parent.PostBody;
             if (token != null)

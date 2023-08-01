@@ -2,23 +2,50 @@
 using System.Collections.Specialized;
 using System.Net;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace SteamAuth {
+    /// <summary>
+    /// <see cref="SteamGuardAccount"/> session data, used to authenticate with the Steam WebAPI.
+    /// </summary>
     public class SessionData {
+        /// <summary>
+        /// Steam account user id
+        /// </summary>
+        [JsonPropertyName("SteamID")]
         public ulong SteamID { get; set; }
 
+        /// <summary>
+        /// Session id
+        /// </summary>
+        [JsonPropertyName("SessionID")]
+        public string SessionId { get; set; } = string.Empty;
+
+        /// <summary>
+        /// Session key
+        /// </summary>
+        [JsonPropertyName("AccessToken")]
         public string AccessToken { get; set; } = string.Empty;
 
+        /// <summary>
+        /// Session refresh key, used to refresh (reset) the <see cref="AccessToken"/>
+        /// </summary>
+        [JsonPropertyName("RefreshToken")]
         public string RefreshToken { get; set; } = string.Empty;
 
-        public string SessionID { get; set; } = string.Empty;
 
-        public async Task RefreshAccessToken() {
+        /// <summary>
+        /// Refreshes the session access token using the refresh token.
+        /// </summary>
+        /// <returns>Always true. If refreshing fails, an exception is thrown.</returns>
+        /// <exception cref="InvalidRefreshTokenException">Refresh token is invalid/empty.</exception>
+        /// <exception cref="AccessTokenRefreshException">An error was encountered while refreshing the access token.</exception>
+        public async Task<bool> RefreshAccessToken() {
             if (string.IsNullOrEmpty(RefreshToken))
-                throw new Exception("Refresh token is empty");
+                throw new InvalidRefreshTokenException("Refresh token is empty");
 
             if (IsTokenExpired(RefreshToken))
-                throw new Exception("Refresh token is expired");
+                throw new InvalidRefreshTokenException("Refresh token is expired");
 
             GenerateAccessTokenForApp.GenerateAccessTokenForAppResponse? response;
             try {
@@ -30,26 +57,46 @@ namespace SteamAuth {
                 };
                 response = await authenticationService.GenerateAccessTokenForApp.Execute(RefreshToken);
             } catch (Exception ex) {
-                throw new Exception("Failed to refresh token: " + ex.Message);
+                throw new AccessTokenRefreshException("Failed to refresh token: " + ex.Message, ex);
             }
 
-            AccessToken = response?.AccessToken ?? throw new Exception("Failed to refresh token: empty response.");
+            AccessToken = response?.AccessToken ?? throw new InvalidRefreshTokenException("Failed to refresh token: empty response.");
+            return true;
         }
 
-        public bool IsAccessTokenExpired() {
-            if (string.IsNullOrEmpty(AccessToken))
-                return true;
+        /// <summary>
+        /// Checks whether the session access token has expired or not.
+        /// The access token can be regenerated using the refresh token.
+        /// </summary>
+        /// <returns>If the access token has expired.</returns>
+        public bool IsAccessTokenExpired() => string.IsNullOrEmpty(AccessToken) || IsTokenExpired(AccessToken);
 
-            return IsTokenExpired(AccessToken);
+        /// <summary>
+        /// Checks whether the session refresh token has expired or not.
+        /// </summary>
+        /// <returns>If the refresh token has expired.</returns>
+        public bool IsRefreshTokenExpired() => string.IsNullOrEmpty(RefreshToken) || IsTokenExpired(RefreshToken);
+
+
+        /// <summary>
+        /// Returns the cookies required to interact with this session.
+        /// </summary>
+        /// <returns>Session cookies.</returns>
+        public CookieContainer GetCookies() {
+            SessionId ??= GenerateSessionID();
+
+            var cookies = new CookieContainer();
+            foreach (string domain in new string[] { "steamcommunity.com", "store.steampowered.com" }) {
+                cookies.Add(new Cookie("steamLoginSecure", GetSteamLoginSecure(), "/", domain));
+                cookies.Add(new Cookie("sessionid", SessionId, "/", domain));
+                cookies.Add(new Cookie("mobileClient", "android", "/", domain));
+                cookies.Add(new Cookie("mobileClientVersion", "777777 3.6.4", "/", domain));
+            }
+            return cookies;
         }
 
-        public bool IsRefreshTokenExpired() {
-            if (string.IsNullOrEmpty(RefreshToken))
-                return true;
 
-            return IsTokenExpired(RefreshToken);
-        }
-
+        #region Helpers
         private static bool IsTokenExpired(string token) {
             var tokenComponents = token.Split('.');
             // Fix up base64url to normal base64
@@ -63,20 +110,7 @@ namespace SteamAuth {
             var jwt = JsonSerializer.Deserialize<SteamAccessToken>(payloadBytes);
 
             // Compare expire time of the token to the current time
-            return DateTimeOffset.UtcNow.ToUnixTimeSeconds() > jwt?.exp;
-        }
-
-        public CookieContainer GetCookies() {
-            SessionID ??= GenerateSessionID();
-
-            var cookies = new CookieContainer();
-            foreach (string domain in new string[] { "steamcommunity.com", "store.steampowered.com" }) {
-                cookies.Add(new Cookie("steamLoginSecure", GetSteamLoginSecure(), "/", domain));
-                cookies.Add(new Cookie("sessionid", SessionID, "/", domain));
-                cookies.Add(new Cookie("mobileClient", "android", "/", domain));
-                cookies.Add(new Cookie("mobileClientVersion", "777777 3.6.4", "/", domain));
-            }
-            return cookies;
+            return DateTimeOffset.UtcNow.ToUnixTimeSeconds() > jwt?.Exp;
         }
 
         private string GetSteamLoginSecure() {
@@ -98,7 +132,36 @@ namespace SteamAuth {
         }
 
         private class SteamAccessToken {
-            public long exp { get; set; }
+            [JsonPropertyName("exp")]
+            public long Exp { get; set; }
         }
+
+
+        /// <summary>
+        /// The attempt to refresh the access token failed.
+        /// </summary>
+        [Serializable]
+        public class AccessTokenRefreshException : Exception {
+            public AccessTokenRefreshException() { }
+            public AccessTokenRefreshException(string message) : base(message) { }
+            public AccessTokenRefreshException(string message, Exception inner) : base(message, inner) { }
+            protected AccessTokenRefreshException(
+              System.Runtime.Serialization.SerializationInfo info,
+              System.Runtime.Serialization.StreamingContext context) : base(info, context) { }
+        }
+
+        /// <summary>
+        /// The session refresh token was either null, empty, or has expired.
+        /// </summary>
+        [Serializable]
+        public class InvalidRefreshTokenException : Exception {
+            public InvalidRefreshTokenException() { }
+            public InvalidRefreshTokenException(string message) : base(message) { }
+            public InvalidRefreshTokenException(string message, Exception inner) : base(message, inner) { }
+            protected InvalidRefreshTokenException(
+              System.Runtime.Serialization.SerializationInfo info,
+              System.Runtime.Serialization.StreamingContext context) : base(info, context) { }
+        }
+        #endregion
     }
 }

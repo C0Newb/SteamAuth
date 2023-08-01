@@ -1,9 +1,12 @@
 ﻿using System.Text.Json.Serialization;
 
 namespace SteamAuth {
+    /// <summary>
+    /// Representation of a mobile authenticator confirmation, such as a trade or market confirmation.
+    /// </summary>
     public class Confirmation {
         [JsonPropertyName("id")]
-        public ulong ID { get; set; }
+        public ulong Id { get; set; }
 
         [JsonPropertyName("nonce")]
         public ulong Key { get; set; }
@@ -30,6 +33,51 @@ namespace SteamAuth {
         [JsonConverter(typeof(JsonStringEnumConverter))]
         public EMobileConfirmationType ConfirmationType { get; set; } = EMobileConfirmationType.Invalid;
 
+        [JsonIgnore]
+        public SteamGuardAccount? Account { get; set; }
+
+
+
+        /// <summary>
+        /// Accepts this confirmation.
+        /// </summary>
+        /// <returns>Whether this confirmation was accepted.</returns>
+        public bool AcceptConfirmation() {
+            if (Account == null)
+                throw new NoSteamGuardAccountException();
+
+            return Account.AcceptConfirmation(this);
+        }
+        /// <inheritdoc cref="AcceptConfirmation"/>
+        public async Task<bool> AcceptConfirmationAsync() {
+            if (Account == null)
+                throw new NoSteamGuardAccountException();
+
+            return await Account.AcceptConfirmationAsync(this);
+        }
+
+
+        // Deny
+        /// <summary>
+        /// Denies this confirmation.
+        /// </summary>
+        /// <returns>Whether this confirmation was denied.</returns>
+        public bool DenyConfirmation() {
+            if (Account == null)
+                throw new NoSteamGuardAccountException();
+
+            return Account.DenyConfirmation(this);
+        }
+        /// <inheritdoc cref="DenyConfirmation"/>
+        public async Task<bool> DenyConfirmationAsync() {
+            if (Account == null)
+                throw new NoSteamGuardAccountException();
+
+            return await Account.DenyConfirmationAsync(this);
+        }
+
+
+
         public enum EMobileConfirmationType {
             Invalid = 0,
             Test = 1,
@@ -38,6 +86,20 @@ namespace SteamAuth {
             FeatureOptOut = 4,
             PhoneNumberChange = 5,
             AccountRecovery = 6
+        }
+
+
+        /// <summary>
+        /// There is no Steam Guard account associated with this confirmation.
+        /// </summary>
+        [Serializable]
+        public class NoSteamGuardAccountException : Exception {
+            public NoSteamGuardAccountException() { }
+            public NoSteamGuardAccountException(string message) : base(message) { }
+            public NoSteamGuardAccountException(string message, Exception inner) : base(message, inner) { }
+            protected NoSteamGuardAccountException(
+              System.Runtime.Serialization.SerializationInfo info,
+              System.Runtime.Serialization.StreamingContext context) : base(info, context) { }
         }
     }
 

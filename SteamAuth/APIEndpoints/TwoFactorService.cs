@@ -1,13 +1,14 @@
 ﻿using SteamAuth.Enums;
 using System.Collections.Specialized;
 using System.Net;
-using System.Runtime;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using static SteamAuth.APIEndpoints.Base;
-using static SteamAuth.APIEndpoints.QueryTime;
 
 namespace SteamAuth.APIEndpoints {
+    /// <summary>
+    /// Steam WebAPI: /ITwoFactorService "interface"
+    /// </summary>
     public class TwoFactorService : Base {
         public const string Path = "/ITwoFactorService";
 
@@ -52,6 +53,13 @@ namespace SteamAuth.APIEndpoints {
         private readonly TwoFactorService _parent;
         public AddAuthenticator(TwoFactorService parent) => _parent = parent;
 
+        /// <summary>
+        /// Adds an authenticator to the user's account.
+        /// </summary>
+        /// <param name="deviceId">Your simulated device id, must be unique!</param>
+        /// <param name="smsPhoneId">Set to 1.</param>
+        /// <param name="authenticatorType">Set to 1.</param>
+        /// <returns>A <see cref="SteamGuardAccount"/>, the user's account.</returns>
         public async Task<SteamGuardAccount?> Execute(string deviceId, string smsPhoneId = "1", int authenticatorType = 1) {
             NameValueCollection body = _parent.PostBody;
             body.Set("authenticator_time", (await TimeAligner.GetSteamTimeAsync()).ToString());
@@ -90,6 +98,13 @@ namespace SteamAuth.APIEndpoints {
             public int Status { get; set; }
         }
 
+        /// <summary>
+        /// Switches the Steam Guard method to your added mobile authenticator.
+        /// </summary>
+        /// <param name="authenticatorCode">Generated Steam Guard code.</param>
+        /// <param name="smsCode">SMS verification code texted to the user.</param>
+        /// <param name="validateSMSCode">Set to 1.</param>
+        /// <returns>Steam's response.</returns>
         public async Task<FinalizeAddAuthenticatorResponse?> Execute(string authenticatorCode, string smsCode, string validateSMSCode = "1") {
             NameValueCollection body = _parent.PostBody;
             body.Set("authenticator_time", (await TimeAligner.GetSteamTimeAsync()).ToString());
@@ -142,6 +157,10 @@ namespace SteamAuth.APIEndpoints {
             public int MaxAttempts { get; set; }
         }
 
+        /// <summary>
+        /// Returns Steam's server time.
+        /// </summary>
+        /// <returns>Steam's time.</returns>
         public async Task<QueryTimeResponse?> Execute() {
             string responseString = await _parent.POST(FullPath);
 
@@ -168,7 +187,14 @@ namespace SteamAuth.APIEndpoints {
             public int RevocationAttemptsRemaining { get; set; }
         }
 
-
+        /// <summary>
+        /// Removes the mobile authenticator from the user's account.
+        /// </summary>
+        /// <param name="revocationCode">Steam Guard revocation code.</param>
+        /// <param name="steamGuardScheme">Which Steam Guard method to switch back to.</param>
+        /// <param name="removeAllSteamGuardCookies">I believe this revokes all active sessions.</param>
+        /// <param name="revocationReason">Set to 1.</param>
+        /// <returns>Steam's response.</returns>
         public async Task<RemoveAuthenticatorResponse?> Execute(string revocationCode, SteamGuardScheme steamGuardScheme = SteamGuardScheme.ReturnToEmail, bool removeAllSteamGuardCookies = false, string revocationReason = "1") {
             var body = _parent.PostBody;
             body.Set("revocation_code", revocationCode);

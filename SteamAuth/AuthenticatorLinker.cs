@@ -27,7 +27,7 @@ namespace SteamAuth {
 
 
         /// <summary>
-        /// Randomly-generated device ID. Should only be generated once per linker.
+        /// Randomly-generated device Id\. Should only be generated once per linker.
         /// </summary>
         public string DeviceID { get; private set; }
 
@@ -114,11 +114,11 @@ namespace SteamAuth {
 
                     // If given country code is null, use the one from the Steam account
                     if (string.IsNullOrEmpty(countryCode)) {
-                        countryCode = await getUserCountry() ?? "US";
+                        countryCode = await GetUserCountry() ?? "US";
                     }
 
                     // Set the phone number
-                    var res = await _setAccountPhoneNumber(this.PhoneNumber, countryCode);
+                    var res = await SetAccountPhoneNumber(this.PhoneNumber, countryCode);
 
                     // Make sure it's successful then respond that we must confirm via email
                     if (res != null && res.ConfirmationEmailAddress != null) {
@@ -184,13 +184,13 @@ namespace SteamAuth {
             return FinalizeResult.TooManyTries;
         }
 
-        private async Task<string?> getUserCountry() {
+        private async Task<string?> GetUserCountry() {
             UserAccountService userAccountService = new UserAccountService(_session.SteamID, _session.AccessToken);
             var response = await userAccountService.GetUserCountry.Execute();
             return response?.Country;
         }
 
-        private async Task<SetAccountPhoneNumberResponse?> _setAccountPhoneNumber(string phoneNumber, string countryCode) {
+        private async Task<SetAccountPhoneNumberResponse?> SetAccountPhoneNumber(string phoneNumber, string countryCode) {
             var response = await PhoneService.SetAccountPhoneNumber.Execute(phoneNumber, countryCode);
             return response;
         }
