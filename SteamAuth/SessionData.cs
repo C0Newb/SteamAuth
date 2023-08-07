@@ -13,7 +13,7 @@ namespace SteamAuth {
         /// Steam account user id
         /// </summary>
         [JsonPropertyName("SteamID")]
-        public ulong SteamID { get; set; }
+        public ulong SteamId { get; set; }
 
         /// <summary>
         /// Session id
@@ -49,11 +49,11 @@ namespace SteamAuth {
 
             GenerateAccessTokenForApp.GenerateAccessTokenForAppResponse? response;
             try {
-                AuthenticationService authenticationService = new AuthenticationService(SteamID);
+                AuthenticationService authenticationService = new AuthenticationService(SteamId);
 
                 var postData = new NameValueCollection {
                     { "refresh_token", RefreshToken },
-                    { "steamid", SteamID.ToString() }
+                    { "steamid", SteamId.ToString() }
                 };
                 response = await authenticationService.GenerateAccessTokenForApp.Execute(RefreshToken);
             } catch (Exception ex) {
@@ -114,7 +114,7 @@ namespace SteamAuth {
         }
 
         private string GetSteamLoginSecure() {
-            return SteamID.ToString() + "%7C%7C" + AccessToken;
+            return SteamId.ToString() + "%7C%7C" + AccessToken;
         }
 
         private static string GenerateSessionID() {

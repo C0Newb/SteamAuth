@@ -1,7 +1,12 @@
 ﻿using System.Collections.Specialized;
 using System.Net;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
+using System.Text.Json.Serialization;
 using static SteamAuth.APIEndpoints.Base;
+using static SteamKit2.GC.CSGO.Internal.CProductInfo_SetRichPresenceLocalization_Request;
 
 namespace SteamAuth.APIEndpoints {
     /// <summary>
@@ -32,51 +37,28 @@ namespace SteamAuth.APIEndpoints {
         private readonly MobileAuthService _parent;
         public GetWGToken(MobileAuthService mobileAuthService) => _parent = mobileAuthService;
 
+        public class GetWGTokenResponse {
+            [JsonPropertyName("token")]
+            public string? Token { get; set; }
+
+            [JsonPropertyName("token_secure")]
+            public string? TokenSecure { get; set; }
+        }
+
         /// <summary>
         /// Not sure
         /// </summary>
         /// <returns></returns>
         public async Task<GetWGTokenResponse?> Execute() {
-            string responseString = await _parent.POST(FullPath, null);
-
-            if (responseString != null)
-                return JsonSerializer.Deserialize<BaseResponse<GetWGTokenResponse>>(responseString, JsonHelpers.Options)?.Response;
-
-            return null;
+            string responseString = await _parent.POST(FullPath);
+            if (string.IsNullOrEmpty(responseString)) return null;
+            return JsonSerializer.Deserialize<BaseResponse<GetWGTokenResponse>>(responseString, JsonHelpers.Options)?.Response;
         }
 
-        /// <summary>
-        /// API response.
-        /// </summary>
-        public class GetWGTokenResponse {
-            // ????
-        }
-    }
-
-    public class MigrateMobileSession {
-        public const string Path = "/MigrateMobileSession/v1/";
-        public const string FullPath = SteamWebAPIBase + MobileAuthService.Path + Path;
-
-        private readonly MobileAuthService _parent;
-        public MigrateMobileSession(MobileAuthService parent) => _parent = parent;
-
-        /// <summary>
-        /// Not implemented. Will send the request, no idea what it'll do ! :)
-        /// </summary>
-        /// <param name="token"></param>
-        /// <param name="signature"></param>
-        /// <param name="deviceDetails"></param>
-        /// <returns></returns>
-        public Task<string> POST(string? token, string? signature, string deviceDetails) {
-            NameValueCollection body = _parent.PostBody;
-            if (token != null)
-                body.Set("token", token);
-            if (signature != null)
-                body.Set("signature", signature);
-            if (deviceDetails != null)
-                body.Set("device_details", deviceDetails);
-
-            return _parent.POST(FullPath, body); /// ????
+        public GetWGTokenResponse? GetTokens() {
+            var task = Execute();
+            task.Wait();
+            return task.Result;
         }
     }
 }

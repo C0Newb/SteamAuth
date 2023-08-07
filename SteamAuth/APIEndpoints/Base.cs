@@ -58,12 +58,17 @@ namespace SteamAuth.APIEndpoints {
         /// Makes a Steam API GET request using the current account cookies, access token, and SteamId.
         /// </summary>
         /// <param name="url">URL to send the GET request to.</param>
+        /// <param name="parameters">URL parameters to add.</param>
         /// <returns>Steam's response.</returns>
-        public Task<string> GET(string url) {
-            string queryString = string.Join("&", Parameters.AllKeys
+        public Task<string> GET(string url, NameValueCollection? parameters = null) {
+            var urlParameters = Parameters;
+            if (parameters != null)
+                urlParameters.Add(parameters);
+
+            string queryString = string.Join("&", urlParameters.AllKeys
                 .Where(key => !string.IsNullOrEmpty(key))
-                .Where(key => Parameters[key] != null)
-                .Select(key => $"{Uri.EscapeDataString(key ?? string.Empty)}={Uri.EscapeDataString(Parameters[key] ?? string.Empty)}"));
+                .Where(key => urlParameters[key] != null)
+                .Select(key => $"{Uri.EscapeDataString(key ?? string.Empty)}={Uri.EscapeDataString(urlParameters[key] ?? string.Empty)}"));
 
             if (!string.IsNullOrEmpty(queryString)) {
                 if (url.Contains('?'))
@@ -81,11 +86,15 @@ namespace SteamAuth.APIEndpoints {
         /// <param name="url">URL to send the POST request to.</param>
         /// <param name="body">POST request body.</param>
         /// <returns>Steam's response.</returns>
-        public Task<string> POST(string url, NameValueCollection? body = null) {
-            string queryString = string.Join("&", Parameters.AllKeys
+        public Task<string> POST(string url, NameValueCollection? body = null, NameValueCollection? parameters = null) {
+            var urlParameters = Parameters;
+            if (parameters != null)
+                urlParameters.Add(parameters);
+
+            string queryString = string.Join("&", urlParameters.AllKeys
                 .Where(key => !string.IsNullOrEmpty(key))
-                .Where(key => Parameters[key] != null)
-                .Select(key => $"{Uri.EscapeDataString(key ?? string.Empty)}={Uri.EscapeDataString(Parameters[key] ?? string.Empty)}"));
+                .Where(key => urlParameters[key] != null)
+                .Select(key => $"{Uri.EscapeDataString(key ?? string.Empty)}={Uri.EscapeDataString(urlParameters[key] ?? string.Empty)}"));
 
             if (!string.IsNullOrEmpty(queryString)) {
                 if (url.Contains('?'))

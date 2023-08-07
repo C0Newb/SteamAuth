@@ -67,8 +67,8 @@ namespace SteamAuth {
         public AuthenticatorLinker(SessionData sessionData) {
             _session = sessionData;
             DeviceID = GenerateDeviceID();
-            TwoFactorService = new TwoFactorService(sessionData.SteamID, sessionData.AccessToken);
-            PhoneService = new PhoneService(_session.SteamID, _session.AccessToken);
+            TwoFactorService = new TwoFactorService(sessionData.SteamId, sessionData.AccessToken);
+            PhoneService = new PhoneService(_session.SteamId, _session.AccessToken);
         }
 
         /// <summary>
@@ -185,7 +185,7 @@ namespace SteamAuth {
         }
 
         private async Task<string?> GetUserCountry() {
-            UserAccountService userAccountService = new UserAccountService(_session.SteamID, _session.AccessToken);
+            UserAccountService userAccountService = new UserAccountService(_session.SteamId, _session.AccessToken);
             var response = await userAccountService.GetUserCountry.Execute();
             return response?.Country;
         }

@@ -44,6 +44,9 @@ namespace SteamAuth {
         [JsonPropertyName("status")]
         public int Status { get; set; }
 
+        [JsonPropertyName("steamguard_scheme")]
+        public SteamGuardScheme Scheme { get; set; }
+
         [JsonPropertyName("device_id")]
         public string? DeviceID { get; set; }
 
@@ -63,7 +66,45 @@ namespace SteamAuth {
 
         private static readonly byte[] steamGuardCodeTranslations = new byte[] { 50, 51, 52, 53, 54, 55, 56, 57, 66, 67, 68, 70, 71, 72, 74, 75, 77, 78, 80, 81, 82, 84, 86, 87, 88, 89 };
 
+        #region Session data
+        /// <summary>
+        /// Enumerate durable (refresh) tokens for the account.
+        /// </summary>
+        /// <returns>Refresh tokens for the account.</returns>
+        public async Task<RefreshTokenInfo[]> GetSessionsAsync() {
+            AuthenticationService authenticationService = new AuthenticationService(Session?.SteamId, Session?.AccessToken);
+            var response = await authenticationService.EnumerateTokens.Execute();
+            var sessions = response?.RefreshTokens;
+            return sessions ?? Array.Empty<RefreshTokenInfo>();
+        }
 
+        /// <inheritdoc cref="GetSessionsAsync"/>
+        public RefreshTokenInfo[] GetRefreshTokens() {
+            var task = GetSessionsAsync();
+            task.Wait();
+            return task.Result;
+        }
+
+
+        /// <summary>
+        /// Revokes a token/session.
+        /// UNDER DEVELOPMENT!
+        /// </summary>
+        /// <param name="token">Token to revoke.</param>
+        /// <returns>Whether the revoke was successful.</returns>
+        public async Task<bool> RevokeTokenAsync(string token) {
+            AuthenticationService authenticationService = new AuthenticationService(Session?.SteamId, Session?.AccessToken);
+            var response = await authenticationService.RevokeRefreshToken.Execute(token);
+            return response != null; // ?
+        }
+
+        public bool RevokeToken(string token) {
+            var task = RevokeTokenAsync(token);
+            task.Wait();
+            return task.Result;
+        }
+
+        #endregion
 
 
         /// <summary>
@@ -72,12 +113,32 @@ namespace SteamAuth {
         /// <param name="scheme">Which Steam Guard method to return to.</param>
         /// <returns></returns>
         public async Task<bool> DeactivateAuthenticator(SteamGuardScheme scheme) {
-            TwoFactorService twoFactorService = new TwoFactorService(null, Session?.AccessToken);
+            TwoFactorService twoFactorService = new TwoFactorService(Session?.SteamId, Session?.AccessToken);
             var response = await twoFactorService.RemoveAuthenticator.Execute(RevocationCode, scheme);
 
             return response?.Success == true;
         }
 
+        /// <summary>
+        /// Remove steam guard from this account via a SMS code.
+        /// </summary>
+        /// <param name="scheme">Which Steam Guard method to return to.</param>
+        /// <returns></returns>
+        public async Task<bool> DeactivateAuthenticatorViaChallenge(Func<string> getSMSCode) {
+            TwoFactorService twoFactorService = new TwoFactorService(Session?.SteamId, Session?.AccessToken);
+            var response = await twoFactorService.RemoveAuthenticatorViaChallenge.Execute();
+
+            if (response?.Success == true) {
+                string smsCode = getSMSCode();
+                var continuedResponse = await twoFactorService.RemoveAuthenticatorViaChallengeContinue.Execute(smsCode, false);
+                return continuedResponse?.Success == true;
+            } else {
+                return false;
+            }
+        }
+
+
+        #region Authentication codes
         /// <summary>
         /// Returns the current Steam Guard code for this account.
         /// </summary>
@@ -179,6 +240,73 @@ namespace SteamAuth {
                 return string.Empty;
             }
         }
+
+        /// <summary>
+        /// Generate emergency authenticator codes.
+        /// </summary>
+        /// <param name="getSMSCode">Function used to obtain the SMS code from the user.</param>
+        /// <param name="previousSmsCode">If the user enters the wrong SMS code, an exception is thrown. Use this to provide a new SMS code guess without sending the code the user again.</param>
+        /// <returns>Backup Steam Guard codes.</returns>
+        public async Task<string[]> GenerateEmergencyCodesAsync(Func<string> getSMSCode, string? previousSmsCode = null) {
+            TwoFactorService twoFactorService = new TwoFactorService(Session?.SteamId, Session?.AccessToken);
+            var response = await twoFactorService.CreateEmergencyCodes.Execute();
+
+            string[] codes = response?.Codes ?? Array.Empty<string>();
+            if (codes == null || codes.Length <= 0) {
+                string smsCode = getSMSCode();
+                var secondResponse = await twoFactorService.CreateEmergencyCodes.Execute(smsCode);
+                if (secondResponse == null || secondResponse.Codes == null || secondResponse.Codes.Length <= 0)
+                    throw new InvalidSMSCodeException($"The provided SMS code \"{smsCode}\" is invalid.");
+
+                codes = secondResponse.Codes;
+            }
+
+            return codes;
+        }
+
+        /// <inheritdoc cref="GenerateEmergencyCodesAsync"/>
+        public string[] GenerateEmergencyCodes(Func<string> getSMSCode) {
+            var generateEmergencyCodesTask = GenerateEmergencyCodesAsync(getSMSCode);
+            generateEmergencyCodesTask.Wait();
+            return generateEmergencyCodesTask.Result;
+        }
+
+        /// <summary>
+        /// Removes all emergency authenticator codes for the account.
+        /// </summary>
+        /// <returns>Whether the request was successful.</returns>
+        public async Task<bool> DestroyEmergencyCodesAsync() {
+            TwoFactorService twoFactorService = new TwoFactorService(Session?.SteamId, Session?.AccessToken);
+            var response = await twoFactorService.DestroyEmergencyCodes.Execute();
+            return true; // it'll thrown an exception if it doesn't
+        }
+        /// <inheritdoc cref="DestroyEmergencyCodesAsync"/>
+        public bool DestroyEmergencyCodes() {
+            var destroyEmergencyCodesTask = DestroyEmergencyCodesAsync();
+            destroyEmergencyCodesTask.Wait();
+            return destroyEmergencyCodesTask.Result;
+        }
+
+
+        /// <summary>
+        /// Allows you to validate whether a Steam Guard token, such as the mobile authenticator code or an emergency code, is valid.
+        /// Note: this will consume your authentication code!
+        /// </summary>
+        /// <param name="code">Steam Guard token to validate.</param>
+        /// <returns>Whether the code is valid.</returns>
+        public async Task<bool> ValidateSteamGuardCodeAsync(string code) {
+            TwoFactorService twoFactorService = new TwoFactorService(Session?.SteamId, Session?.AccessToken);
+            var response = await twoFactorService.ValidateToken.Execute(code);
+            return response?.Valid == true;
+        }
+
+        /// <inheritdoc cref="ValidateSteamGuardCodeAsync"/>
+        public bool ValidateSteamGuardCode(string code) {
+            var validateSteamGuardCodeTask = ValidateSteamGuardCodeAsync(code);
+            validateSteamGuardCodeTask.Wait();
+            return validateSteamGuardCodeTask.Result;
+        }
+        #endregion
 
 
         #region Confirmations
@@ -316,7 +444,7 @@ namespace SteamAuth {
             long time = TimeAligner.GetSteamTime();
             NameValueCollection queryParameters = new NameValueCollection {
                 { "p", DeviceID },
-                { "a", Session?.SteamID.ToString() },
+                { "a", Session?.SteamId.ToString() },
                 { "k", GenerateConfirmationHashForTime(time, tag) },
                 { "t", time.ToString() },
                 { "m", "react" },
@@ -364,6 +492,15 @@ namespace SteamAuth {
 
         #region Exceptions
 
+        [Serializable]
+        public class InvalidSMSCodeException : Exception {
+            public InvalidSMSCodeException() { }
+            public InvalidSMSCodeException(string message) : base(message) { }
+            public InvalidSMSCodeException(string message, Exception inner) : base(message, inner) { }
+            protected InvalidSMSCodeException(
+              System.Runtime.Serialization.SerializationInfo info,
+              System.Runtime.Serialization.StreamingContext context) : base(info, context) { }
+        }
         public class WGTokenInvalidException : Exception {
         }
 

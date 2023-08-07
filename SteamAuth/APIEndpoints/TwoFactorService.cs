@@ -4,6 +4,8 @@ using System.Net;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using static SteamAuth.APIEndpoints.Base;
+using static SteamAuth.APIEndpoints.CreateEmergencyCodes;
+using static SteamAuth.APIEndpoints.RemoveAuthenticator;
 
 namespace SteamAuth.APIEndpoints {
     /// <summary>
@@ -13,14 +15,31 @@ namespace SteamAuth.APIEndpoints {
         public const string Path = "/ITwoFactorService";
 
         private AddAuthenticator? _addAuthenticator;
+        private CreateEmergencyCodes? _createEmergencyCodes;
+        private DestroyEmergencyCodes? _destroyEmergencyCodes;
         private FinalizeAddAuthenticator? _finalizeAddAuthenticator;
         private QueryTime? _queryTime;
         private RemoveAuthenticator? _removeAuthenticator;
+        private RemoveAuthenticatorViaChallengeStart? _removeAuthenticatorViaChallenge;
+        private RemoveAuthenticatorViaChallengeContinue? _removeAuthenticatorViaChallengeContinue;
+        private ValidateToken? _validateToken;
 
         public AddAuthenticator AddAuthenticator {
             get {
                 _addAuthenticator ??= new AddAuthenticator(this);
                 return _addAuthenticator;
+            }
+        }
+        public CreateEmergencyCodes CreateEmergencyCodes {
+            get {
+                _createEmergencyCodes ??= new CreateEmergencyCodes(this);
+                return _createEmergencyCodes;
+            }
+        }
+        public DestroyEmergencyCodes DestroyEmergencyCodes {
+            get {
+                _destroyEmergencyCodes ??= new DestroyEmergencyCodes(this);
+                return _destroyEmergencyCodes;
             }
         }
         public FinalizeAddAuthenticator FinalizeAddAuthenticator {
@@ -39,6 +58,24 @@ namespace SteamAuth.APIEndpoints {
             get {
                 _removeAuthenticator ??= new RemoveAuthenticator(this);
                 return _removeAuthenticator;
+            }
+        }
+        public RemoveAuthenticatorViaChallengeStart RemoveAuthenticatorViaChallenge {
+            get {
+                _removeAuthenticatorViaChallenge ??= new RemoveAuthenticatorViaChallengeStart(this);
+                return _removeAuthenticatorViaChallenge;
+            }
+        }
+        public RemoveAuthenticatorViaChallengeContinue RemoveAuthenticatorViaChallengeContinue {
+            get {
+                _removeAuthenticatorViaChallengeContinue ??= new RemoveAuthenticatorViaChallengeContinue(this);
+                return _removeAuthenticatorViaChallengeContinue;
+            }
+        }
+        public ValidateToken ValidateToken {
+            get {
+                _validateToken ??= new ValidateToken(this);
+                return _validateToken;
             }
         }
 
@@ -68,14 +105,57 @@ namespace SteamAuth.APIEndpoints {
             body.Set("sms_phone_id", smsPhoneId);
 
             string responseString = await _parent.POST(FullPath, body);
-
-            if (responseString != null)
-                return JsonSerializer.Deserialize<BaseResponse<SteamGuardAccount>>(responseString, JsonHelpers.Options)?.Response;
-
-            return null;
+            if (string.IsNullOrEmpty(responseString)) return null;
+            return JsonSerializer.Deserialize<BaseResponse<SteamGuardAccount>>(responseString, JsonHelpers.Options)?.Response;
         }
     }
 
+
+    public class CreateEmergencyCodes {
+        public const string Path = "/CreateEmergencyCodes/v1/";
+        public const string FullPath = SteamWebAPIBase + TwoFactorService.Path + Path;
+
+        private readonly TwoFactorService _parent;
+        public CreateEmergencyCodes(TwoFactorService parent) => _parent = parent;
+
+        public class CreateEmergencyCodesResponse {
+            [JsonPropertyName("codes")]
+            public string[]? Codes { get; set; }
+        }
+
+        /// <summary>
+        /// Generates a new set of emergency codes. After you fire this the first time, you will need to call it again with the user's SMS code.
+        /// </summary>
+        /// <param name="smsCode"></param>
+        /// <returns></returns>
+        public async Task<CreateEmergencyCodesResponse?> Execute(string? smsCode = null) {
+            var body = _parent.PostBody;
+            if (!string.IsNullOrEmpty(smsCode))
+                body.Set("code", smsCode);
+
+            string responseString = await _parent.POST(FullPath, body);
+            if (string.IsNullOrEmpty(responseString)) return null;
+            return JsonSerializer.Deserialize<BaseResponse<CreateEmergencyCodesResponse>>(responseString, JsonHelpers.Options)?.Response;
+        }
+    }
+
+    public class DestroyEmergencyCodes {
+        public const string Path = "/DestroyEmergencyCodes/v1/";
+        public const string FullPath = SteamWebAPIBase + TwoFactorService.Path + Path;
+
+        private readonly TwoFactorService _parent;
+        public DestroyEmergencyCodes(TwoFactorService parent) => _parent = parent;
+
+        public class DestroyEmergencyCodesResponse {
+            [JsonPropertyName("success")]
+            public bool Success { get; set; }
+        }
+        public async Task<DestroyEmergencyCodesResponse?> Execute() {
+            string responseString = await _parent.POST(FullPath);
+            if (string.IsNullOrEmpty(responseString)) return null;
+            return JsonSerializer.Deserialize<BaseResponse<DestroyEmergencyCodesResponse>>(responseString, JsonHelpers.Options)?.Response;
+        }
+    }
 
     public class FinalizeAddAuthenticator {
         public const string Path = "/FinalizeAddAuthenticator/v1/";
@@ -113,11 +193,8 @@ namespace SteamAuth.APIEndpoints {
             body.Set("sms_phone_id", validateSMSCode);
 
             string responseString = await _parent.POST(FullPath, body);
-
-            if (responseString != null)
-                return JsonSerializer.Deserialize<BaseResponse<FinalizeAddAuthenticatorResponse>>(responseString, JsonHelpers.Options)?.Response;
-
-            return null;
+            if (string.IsNullOrEmpty(responseString)) return null;
+            return JsonSerializer.Deserialize<BaseResponse<FinalizeAddAuthenticatorResponse>>(responseString, JsonHelpers.Options)?.Response;
         }
     }
 
@@ -163,11 +240,8 @@ namespace SteamAuth.APIEndpoints {
         /// <returns>Steam's time.</returns>
         public async Task<QueryTimeResponse?> Execute() {
             string responseString = await _parent.POST(FullPath);
-
-            if (responseString != null)
-                return JsonSerializer.Deserialize<BaseResponse<QueryTimeResponse>>(responseString, JsonHelpers.Options)?.Response;
-
-            return null;
+            if (string.IsNullOrEmpty(responseString)) return null;
+            return JsonSerializer.Deserialize<BaseResponse<QueryTimeResponse>>(responseString, JsonHelpers.Options)?.Response;
         }
     }
 
@@ -182,6 +256,9 @@ namespace SteamAuth.APIEndpoints {
         public class RemoveAuthenticatorResponse {
             [JsonPropertyName("success")]
             public bool Success { get; set; }
+
+            [JsonPropertyName("server_time")]
+            public ulong ServerTime { get; set; }
 
             [JsonPropertyName("revocation_attempts_remaining")]
             public int RevocationAttemptsRemaining { get; set; }
@@ -203,11 +280,98 @@ namespace SteamAuth.APIEndpoints {
             body.Set("remove_all_steamguard_cookies", removeAllSteamGuardCookies.ToString());
 
             string responseString = await _parent.POST(FullPath, body);
+            if (string.IsNullOrEmpty(responseString)) return null;
+            return JsonSerializer.Deserialize<BaseResponse<RemoveAuthenticatorResponse>>(responseString, JsonHelpers.Options)?.Response;
+        }
+    }
 
-            if (responseString != null)
-                return JsonSerializer.Deserialize<BaseResponse<RemoveAuthenticatorResponse>>(responseString, JsonHelpers.Options)?.Response;
 
-            return null;
+
+    public class RemoveAuthenticatorViaChallengeStart {
+        public const string Path = "/RemoveAuthenticatorViaChallengeStart/v1/";
+        public const string FullPath = SteamWebAPIBase + TwoFactorService.Path + Path;
+
+        private readonly TwoFactorService _parent;
+        public RemoveAuthenticatorViaChallengeStart(TwoFactorService parent) => _parent = parent;
+
+        public class RemoveAuthenticatorViaChallengeStartResponse {
+            /// <summary>
+            /// Whether the SMS code was sent to the user.
+            /// </summary>
+            [JsonPropertyName("success")]
+            public bool Success { get; set; } = true;
+        }
+
+        /// <summary>
+        /// Begins the process of removing the mobile authenticator using an SMS code.
+        /// </summary>
+        /// <returns>Whether the process has kicked off or not.</returns>
+        public async Task<RemoveAuthenticatorViaChallengeStartResponse?> Execute() {
+            string responseString = await _parent.POST(FullPath);
+            if (string.IsNullOrEmpty(responseString)) return null;
+            return JsonSerializer.Deserialize<BaseResponse<RemoveAuthenticatorViaChallengeStartResponse>>(responseString, JsonHelpers.Options)?.Response;
+        }
+    }
+
+
+    public class RemoveAuthenticatorViaChallengeContinue {
+        public const string Path = "/RemoveAuthenticatorViaChallengeContinue/v1/";
+        public const string FullPath = SteamWebAPIBase + TwoFactorService.Path + Path;
+
+        private readonly TwoFactorService _parent;
+        public RemoveAuthenticatorViaChallengeContinue(TwoFactorService parent) => _parent = parent;
+
+        public class RemoveAuthenticatorViaChallengeContinueResponse {
+            /// <summary>
+            /// Whether the authenticator was successfully removed/regenerated.
+            /// </summary>
+            [JsonPropertyName("success")]
+            public bool Success { get; set; }
+
+            /// <summary>
+            /// If you requested a new token, this would be it. Save this as this is the new "authenticator".
+            /// </summary>
+
+            [JsonPropertyName("replacement_token")]
+            public SteamGuardAccount? ReplacementToken { get; set; }
+        }
+
+        /// <summary>
+        /// Removes the mobile authenticator using an SMS code. Optionally can setup a new <see cref="SteamGuardAccount"/> to take over authentication.
+        /// </summary>
+        /// <param name="smsCode">User supplied SMS code that was sent via <see cref="RemoveAuthenticatorViaChallengeContinue"/>.</param>
+        /// <param name="generateNewToken">Whether to generate a new <see cref="SteamGuardAccount"/></param>
+        /// <returns>Steam response, including whether the removal was successful and/or the new <see cref="SteamGuardAccount"/>.</returns>
+        public async Task<RemoveAuthenticatorViaChallengeContinueResponse?> Execute(string smsCode, bool generateNewToken) {
+            var body = _parent.PostBody;
+            body.Set("sms_code", smsCode);
+            body.Set("generate_new_token", generateNewToken? "1" : "0");
+            //body.Set("version", ((int)steamGuardScheme).ToString());
+
+            string responseString = await _parent.POST(FullPath, body);
+            if (string.IsNullOrEmpty(responseString)) return null;
+            return JsonSerializer.Deserialize<BaseResponse<RemoveAuthenticatorViaChallengeContinueResponse>>(responseString, JsonHelpers.Options)?.Response;
+        }
+    }
+
+
+    public class ValidateToken {
+        public const string Path = "/ValidateToken/v1/";
+        public const string FullPath = SteamWebAPIBase + TwoFactorService.Path + Path;
+
+        private readonly TwoFactorService _parent;
+        public ValidateToken(TwoFactorService parent) => _parent = parent;
+
+        public class ValidateTokenResponse {
+            [JsonPropertyName("valid")]
+            public bool Valid { get; set; }
+        }
+        public async Task<ValidateTokenResponse?> Execute(string authCode) {
+            string responseString = await _parent.POST(FullPath, null, new NameValueCollection {
+                { "code", authCode }
+            });
+            if (string.IsNullOrEmpty(responseString)) return null;
+            return JsonSerializer.Deserialize<BaseResponse<ValidateTokenResponse>>(responseString, JsonHelpers.Options)?.Response;
         }
     }
 }
